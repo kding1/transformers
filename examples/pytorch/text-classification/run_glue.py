@@ -23,6 +23,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
+import torch_ccl
+
 import datasets
 import numpy as np
 from datasets import load_dataset, load_metric
@@ -47,7 +49,7 @@ from transformers.utils.versions import require_version
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.13.0.dev0")
+# check_min_version("4.13.0.dev0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text-classification/requirements.txt")
 
@@ -190,6 +192,17 @@ def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
+
+    # add local rank for cpu-dist
+    sys.argv.append("--local_rank")
+    sys.argv.append(str(os.environ.get("PMI_RANK", -1)))
+
+    # ccl specific environment variables
+    if "ccl" in sys.argv:
+        os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "127.0.0.1")
+        os.environ["MASTER_PORT"] = "29500"
+        os.environ["RANK"] = str(os.environ.get("PMI_RANK", -1))
+        os.environ["WORLD_SIZE"] = str(os.environ.get("PMI_SIZE", -1))
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
