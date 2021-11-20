@@ -186,6 +186,10 @@ class ModelArguments:
             "with private models)."
         },
     )
+    use_sigopt_hpo: bool = field(
+        default=False,
+        metadata={"help": "Whether to use sigopt to perform HPO for model training."},
+    )
 
 
 def main():
@@ -488,6 +492,45 @@ def main():
         tokenizer=tokenizer,
         data_collator=data_collator,
     )
+
+    # HPO using sigopt
+    if model_args.use_sigopt_hpo:
+        def glue_hp_space(trial):
+            return [
+                {'bounds': {'min': 1e-6, 'max': 1e-4}, 'name': 'learning_rate', 'type': 'double',
+                 'transformamtion': 'log'},
+                {'bounds': {'min': 1, 'max': 3}, 'name': 'num_train_epochs', 'type': 'int'},
+                {'bounds': {'min': 1, 'max': 40}, 'name': 'seed', 'type': 'int'},
+                {'categorical_values': ['16', '32', '64', '128'],
+                 'name': 'per_device_train_batch_size', 'type': 'categorical'},
+            ]
+
+        def model_init(trial):
+            return AutoModelForSequenceClassification.from_pretrained(
+                model_args.model_name_or_path,
+                from_tf=bool(".ckpt" in model_args.model_name_or_path),
+                config=config,
+                cache_dir=model_args.cache_dir,
+                revision=model_args.model_revision,
+                use_auth_token=True if model_args.use_auth_token else None,
+            )
+
+        # Initialize our Trainer
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            model_init=model_init,
+            compute_metrics=compute_metrics,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+        )
+
+        best_trial = trainer.hyperparameter_search(direction="maximize", backend="sigopt",
+                                                   hp_space=glue_hp_space, n_trials=50)
+        logger.info("best trial: %s" % (best_trial))
+        exit(0)
 
     # Training
     if training_args.do_train:
